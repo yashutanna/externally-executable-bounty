@@ -8,10 +8,10 @@ pragma solidity ^0.8.24;
 ///      then call `executeTask(taskId)` to execute and claim the bounty.
 interface IExternallyExecutableBounty {
     /// @notice Emitted when a new task is registered
-    event TaskCreated(uint256 indexed taskId, uint256 executeAfterBlock, address bountyToken, uint256 bountyAmount);
+    event TaskCreated(uint256 indexed taskId, uint256 executeAfterBlock, uint256 bountyAmount);
 
     /// @notice Emitted when a task is successfully executed
-    event TaskExecuted(uint256 indexed taskId, address indexed executor, address bountyToken, uint256 bountyAmount);
+    event TaskExecuted(uint256 indexed taskId, address indexed executor, uint256 bountyAmount);
 
     /// @notice Emitted when a task is cancelled by the owner
     event TaskCancelled(uint256 indexed taskId);
@@ -27,11 +27,10 @@ interface IExternallyExecutableBounty {
     /// @param taskId The ID of the task to execute
     function executeTask(uint256 taskId) external;
 
-    /// @notice Get the bounty details for a task
+    /// @notice Get the bounty amount for a task (native ETH)
     /// @param taskId The task ID to query
-    /// @return token The bounty token address (address(0) for native ETH)
-    /// @return amount The bounty amount
-    function taskBounty(uint256 taskId) external view returns (address token, uint256 amount);
+    /// @return amount The bounty amount in wei
+    function taskBounty(uint256 taskId) external view returns (uint256 amount);
 
     /// @notice Get the total number of tasks (including completed/cancelled)
     function taskCount() external view returns (uint256);

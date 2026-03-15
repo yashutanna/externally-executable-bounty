@@ -6,10 +6,9 @@ describe("E2E: Registry → DeadMansSwitch → Execute", function () {
   async function deployAll() {
     const [deployer, beneficiary, executor] = await ethers.getSigners();
 
-    // Deploy registry
-    const fee = ethers.parseEther("0.001");
+    // Deploy registry (no args — permissionless public good)
     const Registry = await ethers.getContractFactory("TaskRegistry");
-    const registry = await Registry.deploy(fee, deployer.address);
+    const registry = await Registry.deploy();
 
     // Deploy DMS
     const interval = 20;
@@ -20,7 +19,7 @@ describe("E2E: Registry → DeadMansSwitch → Execute", function () {
     });
 
     // Register
-    await registry.register(await dms.getAddress(), { value: fee });
+    await registry.register(await dms.getAddress());
 
     return { registry, dms, deployer, beneficiary, executor, interval, bounty };
   }
@@ -45,8 +44,7 @@ describe("E2E: Registry → DeadMansSwitch → Execute", function () {
     expect(tasks.length).to.equal(1);
 
     // 5. Check bounty is worth it
-    const [token, amount] = await dmsContract.taskBounty(tasks[0]);
-    expect(token).to.equal(ethers.ZeroAddress); // ETH
+    const amount = await dmsContract.taskBounty(tasks[0]);
     expect(amount).to.equal(bounty);
 
     // 6. Execute and collect

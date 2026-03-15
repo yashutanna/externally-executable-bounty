@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {IExternallyExecutableBounty} from "../interfaces/IExternallyExecutableBounty.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title ScheduledTaskBase — Abstract base for contracts with scheduled tasks
 /// @notice Provides task storage, bounty management, and execution scaffolding.
 ///         Inheritors define what happens when a task fires via `_onTaskExecuted`.
+///         Bounties are paid in native ETH only.
 abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGuard {
     enum TaskStatus {
         Pending,
@@ -22,8 +22,7 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
 
     struct Task {
         uint256 executeAfterBlock;  // Task becomes executable after this block
-        address bountyToken;        // address(0) = native ETH
-        uint256 bountyAmount;
+        uint256 bountyAmount;       // Bounty in native ETH (wei)
         TaskStatus status;
         TaskType taskType;
         uint256 intervalBlocks;     // For recurring: re-arm after this many blocks (0 = one-shot)
@@ -35,19 +34,19 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
     /// @notice Revert reasons
     error TaskNotReady(uint256 taskId, uint256 currentBlock, uint256 requiredBlock);
     error TaskNotPending(uint256 taskId);
-    error InsufficientBountyBalance();
     error BountyTransferFailed();
 
     // ─── Views ───────────────────────────────────────────────────────────
 
     function getExecutableTasks() external view override returns (uint256[] memory) {
+        uint256 len = _tasks.length;
         uint256 count = 0;
-        for (uint256 i = 0; i < _tasks.length; i++) {
+        for (uint256 i = 0; i < len; i++) {
             if (_isExecutable(i)) count++;
         }
         uint256[] memory result = new uint256[](count);
         uint256 idx = 0;
-        for (uint256 i = 0; i < _tasks.length; i++) {
+        for (uint256 i = 0; i < len; i++) {
             if (_isExecutable(i)) {
                 result[idx++] = i;
             }
@@ -55,9 +54,32 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
         return result;
     }
 
-    function taskBounty(uint256 taskId) external view override returns (address token, uint256 amount) {
-        Task storage t = _tasks[taskId];
-        return (t.bountyToken, t.bountyAmount);
+    /// @notice Paginated version for contracts with many tasks
+    /// @param offset Start index
+    /// @param limit Max results to return
+    function getExecutableTasksPaginated(uint256 offset, uint256 limit) external view returns (uint256[] memory) {
+        uint256 len = _tasks.length;
+        if (offset >= len) return new uint256[](0);
+
+        uint256 end = offset + limit;
+        if (end > len) end = len;
+
+        uint256 count = 0;
+        for (uint256 i = offset; i < end; i++) {
+            if (_isExecutable(i)) count++;
+        }
+        uint256[] memory result = new uint256[](count);
+        uint256 idx = 0;
+        for (uint256 i = offset; i < end; i++) {
+            if (_isExecutable(i)) {
+                result[idx++] = i;
+            }
+        }
+        return result;
+    }
+
+    function taskBounty(uint256 taskId) external view override returns (uint256 amount) {
+        return _tasks[taskId].bountyAmount;
     }
 
     function taskCount() external view override returns (uint256) {
@@ -69,7 +91,6 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
         view
         returns (
             uint256 executeAfterBlock,
-            address bountyToken,
             uint256 bountyAmount,
             TaskStatus status,
             TaskType taskType,
@@ -77,7 +98,7 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
         )
     {
         Task storage t = _tasks[taskId];
-        return (t.executeAfterBlock, t.bountyToken, t.bountyAmount, t.status, t.taskType, t.intervalBlocks);
+        return (t.executeAfterBlock, t.bountyAmount, t.status, t.taskType, t.intervalBlocks);
     }
 
     // ─── Execution ──────────────────────────────────────────────────────
@@ -90,21 +111,30 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
             revert TaskNotReady(taskId, block.number, t.executeAfterBlock);
         }
 
+        // Cache bounty before execution
+        uint256 bountyAmount = t.bountyAmount;
+
+        // Update state BEFORE external calls (CEI pattern)
+        if (t.taskType == TaskType.Recurring && t.intervalBlocks > 0) {
+            t.executeAfterBlock = block.number + t.intervalBlocks;
+        } else {
+            t.status = TaskStatus.Executed;
+        }
+
         // Execute the task logic (defined by inheritor)
         _onTaskExecuted(taskId, t.data);
 
-        // Pay the executor
-        _payBounty(msg.sender, t.bountyToken, t.bountyAmount);
+        // Pay the executor in native ETH
+        if (bountyAmount > 0) {
+            (bool ok, ) = payable(msg.sender).call{value: bountyAmount}("");
+            if (!ok) revert BountyTransferFailed();
+        }
 
-        emit TaskExecuted(taskId, msg.sender, t.bountyToken, t.bountyAmount);
+        emit TaskExecuted(taskId, msg.sender, bountyAmount);
 
-        // Handle recurring vs one-shot
+        // Emit re-arm event for recurring
         if (t.taskType == TaskType.Recurring && t.intervalBlocks > 0) {
-            // Re-arm: set next execution block
-            t.executeAfterBlock = block.number + t.intervalBlocks;
-            emit TaskCreated(taskId, t.executeAfterBlock, t.bountyToken, t.bountyAmount);
-        } else {
-            t.status = TaskStatus.Executed;
+            emit TaskCreated(taskId, t.executeAfterBlock, bountyAmount);
         }
     }
 
@@ -112,7 +142,6 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
 
     function _createTask(
         uint256 executeAfterBlock,
-        address bountyToken,
         uint256 bountyAmount,
         TaskType taskType,
         uint256 intervalBlocks,
@@ -121,14 +150,13 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
         taskId = _tasks.length;
         _tasks.push(Task({
             executeAfterBlock: executeAfterBlock,
-            bountyToken: bountyToken,
             bountyAmount: bountyAmount,
             status: TaskStatus.Pending,
             taskType: taskType,
             intervalBlocks: intervalBlocks,
             data: data
         }));
-        emit TaskCreated(taskId, executeAfterBlock, bountyToken, bountyAmount);
+        emit TaskCreated(taskId, executeAfterBlock, bountyAmount);
     }
 
     function _cancelTask(uint256 taskId) internal {
@@ -143,23 +171,7 @@ abstract contract ScheduledTaskBase is IExternallyExecutableBounty, ReentrancyGu
         return t.status == TaskStatus.Pending && block.number > t.executeAfterBlock;
     }
 
-    function _payBounty(address executor, address token, uint256 amount) internal {
-        if (amount == 0) return;
-
-        if (token == address(0)) {
-            // Native ETH
-            (bool ok, ) = payable(executor).call{value: amount}("");
-            if (!ok) revert BountyTransferFailed();
-        } else {
-            // ERC20
-            bool ok = IERC20(token).transfer(executor, amount);
-            if (!ok) revert BountyTransferFailed();
-        }
-    }
-
     /// @notice Override this to define what the task actually does
-    /// @param taskId The task being executed
-    /// @param data Arbitrary data stored with the task
     function _onTaskExecuted(uint256 taskId, bytes memory data) internal virtual;
 
     /// @notice Accept ETH for bounty funding

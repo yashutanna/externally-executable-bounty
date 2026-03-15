@@ -3,12 +3,14 @@ pragma solidity ^0.8.24;
 
 import {ScheduledTaskBase} from "../base/ScheduledTaskBase.sol";
 
-/// @title ScheduledPayment — Example: recurring payments (payroll, subscriptions, vesting)
-/// @notice Schedule ETH or ERC20 payments that anyone can trigger once due.
+/// @title ScheduledPayment — Example: recurring ETH payments (payroll, subscriptions, vesting)
+/// @notice Schedule ETH payments that anyone can trigger once due.
 contract ScheduledPayment is ScheduledTaskBase {
     address public owner;
 
     error OnlyOwner();
+    error ZeroRecipient();
+    error ZeroAmount();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
@@ -19,48 +21,44 @@ contract ScheduledPayment is ScheduledTaskBase {
         owner = msg.sender;
     }
 
-    /// @notice Schedule a one-time payment
+    /// @notice Schedule a one-time ETH payment
     /// @param recipient Who receives the payment
-    /// @param amount Payment amount
-    /// @param paymentToken Token address (address(0) for ETH)
+    /// @param amount Payment amount in wei
     /// @param executeAfterBlock Block after which this can be executed
-    /// @param bountyToken Bounty token for executor
-    /// @param bountyAmount Bounty for executor
+    /// @param bountyAmount ETH bounty for executor
     function schedulePayment(
         address recipient,
         uint256 amount,
-        address paymentToken,
         uint256 executeAfterBlock,
-        address bountyToken,
         uint256 bountyAmount
     ) external onlyOwner returns (uint256) {
+        if (recipient == address(0)) revert ZeroRecipient();
+        if (amount == 0) revert ZeroAmount();
         return _createTask(
             executeAfterBlock,
-            bountyToken,
             bountyAmount,
             TaskType.OneShot,
             0,
-            abi.encode(recipient, amount, paymentToken)
+            abi.encode(recipient, amount)
         );
     }
 
-    /// @notice Schedule a recurring payment
+    /// @notice Schedule a recurring ETH payment
     function scheduleRecurringPayment(
         address recipient,
         uint256 amount,
-        address paymentToken,
         uint256 executeAfterBlock,
         uint256 intervalBlocks,
-        address bountyToken,
         uint256 bountyAmount
     ) external onlyOwner returns (uint256) {
+        if (recipient == address(0)) revert ZeroRecipient();
+        if (amount == 0) revert ZeroAmount();
         return _createTask(
             executeAfterBlock,
-            bountyToken,
             bountyAmount,
             TaskType.Recurring,
             intervalBlocks,
-            abi.encode(recipient, amount, paymentToken)
+            abi.encode(recipient, amount)
         );
     }
 
@@ -70,29 +68,14 @@ contract ScheduledPayment is ScheduledTaskBase {
     }
 
     function _onTaskExecuted(uint256 /* taskId */, bytes memory data) internal override {
-        (address recipient, uint256 amount, address paymentToken) = abi.decode(data, (address, uint256, address));
-
-        if (paymentToken == address(0)) {
-            (bool ok, ) = payable(recipient).call{value: amount}("");
-            require(ok, "Payment failed");
-        } else {
-            // Use low-level call for ERC20 transfer
-            (bool ok, bytes memory ret) = paymentToken.call(
-                abi.encodeWithSignature("transfer(address,uint256)", recipient, amount)
-            );
-            require(ok && (ret.length == 0 || abi.decode(ret, (bool))), "ERC20 payment failed");
-        }
+        (address recipient, uint256 amount) = abi.decode(data, (address, uint256));
+        (bool ok, ) = payable(recipient).call{value: amount}("");
+        require(ok, "Payment failed");
     }
 
-    function withdraw(address token, uint256 amount) external onlyOwner {
-        if (token == address(0)) {
-            (bool ok, ) = payable(owner).call{value: amount}("");
-            require(ok);
-        } else {
-            (bool ok, ) = token.call(
-                abi.encodeWithSignature("transfer(address,uint256)", owner, amount)
-            );
-            require(ok);
-        }
+    /// @notice Owner can withdraw ETH
+    function withdraw(uint256 amount) external onlyOwner {
+        (bool ok, ) = payable(owner).call{value: amount}("");
+        require(ok);
     }
 }

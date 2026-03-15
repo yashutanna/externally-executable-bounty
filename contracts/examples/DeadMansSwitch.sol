@@ -32,11 +32,8 @@ contract DeadMansSwitch is ScheduledTaskBase {
         beneficiary = _beneficiary;
         checkInIntervalBlocks = _checkInIntervalBlocks;
 
-        // Create a recurring task — if executed, it means owner missed check-in
-        // But we override _onTaskExecuted to make it one-shot (sends all funds)
         taskId = _createTask(
             block.number + _checkInIntervalBlocks,
-            address(0),         // bounty in ETH
             _bountyAmount,
             TaskType.OneShot,
             0,
@@ -46,14 +43,17 @@ contract DeadMansSwitch is ScheduledTaskBase {
 
     /// @notice Owner checks in, pushing the deadline forward
     function checkIn() external onlyOwner {
+        if (_tasks[taskId].status != TaskStatus.Pending) revert TaskNotPending(taskId);
         _tasks[taskId].executeAfterBlock = block.number + checkInIntervalBlocks;
     }
 
     /// @notice What happens when the switch triggers
-    function _onTaskExecuted(uint256 /* taskId */, bytes memory data) internal override {
+    /// @dev Called before bounty payment (CEI pattern in base). Balance still includes bounty.
+    function _onTaskExecuted(uint256 _taskId, bytes memory data) internal override {
         address _beneficiary = abi.decode(data, (address));
-        // Send remaining balance (minus bounty, which is handled by base) to beneficiary
-        uint256 remaining = address(this).balance - _tasks[taskId].bountyAmount;
+        uint256 bountyAmount = _tasks[_taskId].bountyAmount;
+        uint256 balance = address(this).balance;
+        uint256 remaining = balance > bountyAmount ? balance - bountyAmount : 0;
         if (remaining > 0) {
             (bool ok, ) = payable(_beneficiary).call{value: remaining}("");
             require(ok, "Transfer to beneficiary failed");

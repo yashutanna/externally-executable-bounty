@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This proposal defines a standard interface (`IExternallyExecutableBounty`) for smart contracts that expose tasks which need to be executed by external parties. Implementing contracts advertise executable tasks, and any caller who successfully executes a task receives a bounty (ETH or ERC-20) as compensation. This creates a permissionless, incentive-driven automation layer with no centralized operator network, no staking requirements, and no subscriptions.
+This proposal defines a standard interface (`IExternallyExecutableBounty`) for smart contracts that expose tasks which need to be executed by external parties. Implementing contracts advertise executable tasks, and any caller who successfully executes a task receives an ETH bounty as compensation. This creates a permissionless, incentive-driven automation layer with no centralized operator network, no staking requirements, and no subscriptions.
 
 ## Motivation
 
@@ -23,7 +23,7 @@ If you're building a contract today that needs "call this function after block X
 - Pay for Chainlink Automation (subscription, vendor dependency)
 - Hope someone will call your function (no incentive)
 
-What's missing is a **standard interface** that lets any contract say: *"I have work that needs doing, and I'll pay you for it."*
+What's missing is a **standard interface** that lets any contract say: *"I have work that needs doing, and I'll pay you ETH for it."*
 
 This is what ERC-20 did for tokens — before it, every token had its own transfer mechanism. After ERC-20, wallets, DEXs, and tools could interact with any token using the same interface. We want to do the same for task execution.
 
@@ -33,29 +33,34 @@ The interface is intentionally minimal — 4 functions, 3 events:
 
 ```solidity
 interface IExternallyExecutableBounty {
-    event TaskCreated(uint256 indexed taskId, uint256 executeAfterBlock, address bountyToken, uint256 bountyAmount);
-    event TaskExecuted(uint256 indexed taskId, address indexed executor, address bountyToken, uint256 bountyAmount);
+    event TaskCreated(uint256 indexed taskId, uint256 executeAfterBlock, uint256 bountyAmount);
+    event TaskExecuted(uint256 indexed taskId, address indexed executor, uint256 bountyAmount);
     event TaskCancelled(uint256 indexed taskId);
 
-    /// @notice Returns all task IDs that are currently executable
     function getExecutableTasks() external view returns (uint256[] memory taskIds);
-
-    /// @notice Execute a task and receive the bounty. Reverts if not ready.
     function executeTask(uint256 taskId) external;
-
-    /// @notice Get bounty details (address(0) = native ETH)
-    function taskBounty(uint256 taskId) external view returns (address token, uint256 amount);
-
-    /// @notice Total tasks ever created (valid IDs: 0 to taskCount()-1)
+    function taskBounty(uint256 taskId) external view returns (uint256 amount);
     function taskCount() external view returns (uint256);
 }
 ```
 
 ### How It Works
 
-1. **Contract developers** implement `IExternallyExecutableBounty` and fund their contract with ETH/ERC-20 for bounties
+1. **Contract developers** implement `IExternallyExecutableBounty` and fund their contract with ETH for bounties
 2. **Executors** (anyone running a bot) call `getExecutableTasks()` (view, free) to discover ready tasks
-3. When a task is ready, executors call `executeTask(taskId)` — the contract's logic runs and the executor receives the bounty via `msg.sender`
+3. Executors **simulate** `executeTask(taskId)` via `eth_call` — if the implementation is broken, simulation fails and they skip it
+4. When profitable, executors submit `executeTask(taskId)` — the contract's logic runs and the executor receives ETH via `msg.sender`
+
+### Why ETH-Only Bounties?
+
+This was a deliberate design choice:
+
+- **Simulation-friendly**: Executors `eth_call` simulate the execution and check their ETH balance delta. Broken implementations fail immediately — executors never waste gas.
+- **No token edge cases**: No fee-on-transfer tokens, no rebasing, no approval patterns, no non-standard return values.
+- **Universal**: ETH exists on every EVM chain. No dependency on specific token deployments.
+- **Gas-efficient**: Native ETH transfers are cheaper than ERC-20 transfers.
+
+Contracts that want to offer ERC-20 bounties can wrap: hold ETH for the bounty, handle token distribution in task logic.
 
 ### Key Design Decisions
 
@@ -63,11 +68,13 @@ interface IExternallyExecutableBounty {
 
 **Contract-set bounties**: The deploying contract decides the bounty amount. Executors decide if it's worth the gas. Market pricing, not subscription pricing.
 
-**Gas is the executor's problem**: Executors calculate whether `bounty > gas cost` before executing. This is simple and avoids oracle dependencies.
+**Gas is the executor's problem**: Executors calculate whether `bounty > gas cost` before executing. Simple, no oracle dependencies.
 
-**One-shot and recurring**: Both supported. Recurring tasks re-arm after execution (advance the `executeAfterBlock`). One-shot tasks are marked as executed.
+**CEI pattern**: State updates before external calls throughout. Task status is updated before `_onTaskExecuted()` runs and before bounty payment.
 
-**No cancel function in the interface**: Cancellation logic varies by implementation. The `TaskCancelled` event is standardized for executor tracking, but the cancel mechanism is left to implementors.
+**One-shot and recurring**: Both supported. Recurring tasks re-arm after execution. One-shot tasks are marked as executed.
+
+**No cancel function in the interface**: Cancellation logic varies by implementation. The `TaskCancelled` event is standardized for executor tracking.
 
 ### ERC-165
 
@@ -94,42 +101,46 @@ Compliant contracts MUST implement ERC-165 and return `true` for the interface I
 | Subscription | Yes | Yes | No |
 | Executor network | Chainlink nodes | Gelato nodes | Anyone |
 | Vendor lock-in | Yes | Yes | No |
-| On-chain incentive | No | No | Yes (bounty) |
+| On-chain incentive | No | No | Yes (ETH bounty) |
+| Simulation-safe | N/A | N/A | Yes (eth_call) |
 
-The key insight is that this is an **interface standard**, not a protocol. There's no middleware, no token, no network to join. Contracts implement the interface, executors call the functions, bounties flow.
+The key insight is that this is an **interface standard**, not a protocol. There's no middleware, no token, no network to join. Contracts implement the interface, executors call the functions, ETH bounties flow.
 
 ## Reference Implementation
 
-We've built and deployed a complete reference implementation on Base Sepolia:
+Complete reference implementation deployed on **Ethereum, Base, and Arbitrum** (same address via CREATE2):
 
-- **Abstract base contract** (`ScheduledTaskBase`) — handles task lifecycle, bounty payments, reentrancy protection, one-shot + recurring
-- **TaskRegistry** — optional on-chain discovery registry
-- **DeadMansSwitch** — example implementation
-- **ScheduledPayment** — example: one-time and recurring payments
-- **Executor bot** — TypeScript reference bot that scans the registry and executes profitable tasks
+**TaskRegistry**: [`0x4B094F689e3edeDd04C439f1BeCDE8b4C800482B`](https://etherscan.io/address/0x4B094F689e3edeDd04C439f1BeCDE8b4C800482B#code)
 
-**Deployed contracts (Base Sepolia):**
-- TaskRegistry: [`0x784CA49F7c1518BabE18880984d7131a0A8A632D`](https://sepolia.basescan.org/address/0x784CA49F7c1518BabE18880984d7131a0A8A632D#code)
-- DeadMansSwitch: [`0x576ed8DA8d01C0b4e8a89CC3EeB18Bb75630e62f`](https://sepolia.basescan.org/address/0x576ed8DA8d01C0b4e8a89CC3EeB18Bb75630e62f#code)
+- No owner, no fees — permissionless public good
+- Source verified on all explorers
+- [Etherscan](https://etherscan.io/address/0x4B094F689e3edeDd04C439f1BeCDE8b4C800482B#code) · [Basescan](https://basescan.org/address/0x4B094F689e3edeDd04C439f1BeCDE8b4C800482B#code) · [Arbiscan](https://arbiscan.io/address/0x4B094F689e3edeDd04C439f1BeCDE8b4C800482B#code)
 
-Both contracts are verified and readable on Basescan. The executor bot successfully discovered and executed the dead man's switch task, collecting a 0.0001 ETH bounty for ~0.0000005 ETH in gas.
+The repo includes:
+- **`ScheduledTaskBase.sol`** — Abstract base with task lifecycle, CEI pattern, ReentrancyGuard, ETH bounties
+- **`TaskRegistry.sol`** — Permissionless on-chain discovery (no admin, reentrancy-safe registration)
+- **`DeadMansSwitch.sol`** — Example: dead man's switch with beneficiary
+- **`ScheduledPayment.sol`** — Example: one-shot and recurring ETH payments
+- **`executor/bot.ts`** — Reference executor bot (TypeScript)
 
-**Source code**: [github.com/yashutanna/externally-executable-bounty](https://github.com/yashutanna/externally-executable-bounty)
+The executor bot successfully discovered and executed tasks on testnet, collecting bounties profitably.
 
-## Design Notes
+**Source code**: [github.com/yashutanna/exb](https://github.com/yashutanna/exb)
 
-**Pagination**: The core interface keeps `getExecutableTasks()` simple — returns all executable task IDs. Implementations with large numbers of tasks MAY additionally expose a paginated variant like `getExecutableTasksPaginated(uint256 offset, uint256 limit)`, but this is not part of the standard interface. Simplicity wins for the common case.
+## Security Considerations
 
-**No `taskInfo()` function**: We considered a richer view function returning execution conditions, status, and metadata. Decided against it — the interface stays minimal. Implementations can add whatever view functions they need beyond the standard four.
-
-**ERC-165**: Compliant contracts SHOULD implement ERC-165 (`supportsInterface`) and return `true` for interface ID `0x0dd141a0`. This lets executor bots quickly verify a contract implements EXB without trial-and-error calls. It's recommended, not mandatory, to keep the implementation burden low.
-
-**Event indexing**: `TaskExecuted` indexes `taskId` and `executor`, enabling efficient queries for "all executions of task X" and "all bounties collected by address Y" — the two queries executors care about most. Bounty token/amount are included as unindexed data (still readable, not filterable at RPC level). Adding more indexed params would increase gas costs on emit without meaningful benefit.
+- **ReentrancyGuard** on all execution paths
+- **CEI pattern** — state updated before any external calls (task status, recurring re-arm)
+- **Registry reentrancy protection** — registration slot reserved before `taskCount()` validation call
+- **Simulation-friendly** — executors dry-run via `eth_call` to detect broken implementations before spending gas
+- **Pagination** — `getExecutableTasksPaginated()` and `getActiveContractsPaginated()` for scale
+- **Implementor footgun documented** — if `_onTaskExecuted()` drains all ETH, bounty payment fails and task is stuck
 
 ## Feedback Welcome
 
 Looking for feedback on:
 - Interface design — is it minimal enough? Too minimal?
 - Security considerations we may have missed
-- Edge cases in the bounty payment model
+- Edge cases in the ETH bounty payment model
 - Interest from existing automation projects in adopting the standard
+- Whether ERC-165 should be MUST or SHOULD

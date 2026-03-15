@@ -3,7 +3,7 @@ import { ethers } from "hardhat";
 // Deterministic Deployment Proxy (exists on all major EVM chains)
 // https://github.com/Arachnid/deterministic-deployment-proxy
 const CREATE2_FACTORY = "0x4e59b44847b379578588920cA78FbF26c0B4956C";
-const SALT = ethers.id("exb-v1"); // deterministic salt
+const SALT = ethers.id("exb-v2"); // deterministic salt
 
 async function deployCreate2(name: string, bytecode: string, constructorArgs: string) {
   const [deployer] = await ethers.getSigners();
@@ -53,18 +53,9 @@ async function main() {
     throw new Error(`CREATE2 factory not found at ${CREATE2_FACTORY} on this chain`);
   }
 
-  // 1. Deploy TaskRegistry with 0 fee
-  // Owner is hardcoded to ensure identical bytecode (and thus identical CREATE2 address) across all chains
-  const OWNER = "0xF00CAAb8E02378384d133347F15698F2A704b3A5";
-  if (deployer.address.toLowerCase() !== OWNER.toLowerCase()) {
-    console.warn(`⚠️  Deployer ${deployer.address} != expected owner ${OWNER}`);
-    console.warn(`   Registry will still deploy but will be owned by ${OWNER}`);
-  }
+  // 1. Deploy TaskRegistry — permissionless, no owner, no fees
   const Registry = await ethers.getContractFactory("TaskRegistry");
-  const registryArgs = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["uint256", "address"], [0, OWNER]
-  );
-  const registryAddr = await deployCreate2("TaskRegistry", Registry.bytecode, registryArgs);
+  const registryAddr = await deployCreate2("TaskRegistry", Registry.bytecode, "0x");
   
   const finalBal = await ethers.provider.getBalance(deployer.address);
   console.log(`\n📋 Deployment Summary`);
