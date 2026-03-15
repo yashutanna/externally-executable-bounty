@@ -28,6 +28,16 @@ const config: HardhatUserConfig = {
       accounts: [DEPLOYER_KEY],
       chainId: 8453,
     },
+    ethereum: {
+      url: "https://ethereum-rpc.publicnode.com",
+      accounts: [DEPLOYER_KEY],
+      chainId: 1,
+    },
+    arbitrum: {
+      url: "https://arb1.arbitrum.io/rpc",
+      accounts: [DEPLOYER_KEY],
+      chainId: 42161,
+    },
     hardhat: {
       chainId: 31337,
     },

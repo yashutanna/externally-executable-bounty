@@ -9,7 +9,7 @@ describe("E2E: Registry → DeadMansSwitch → Execute", function () {
     // Deploy registry
     const fee = ethers.parseEther("0.001");
     const Registry = await ethers.getContractFactory("TaskRegistry");
-    const registry = await Registry.deploy(fee);
+    const registry = await Registry.deploy(fee, deployer.address);
 
     // Deploy DMS
     const interval = 20;

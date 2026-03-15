@@ -11,7 +11,7 @@ async function main() {
   const registrationFee = ethers.parseEther("0.0001");
   console.log(`   Deploying TaskRegistry...`);
   const Registry = await ethers.getContractFactory("TaskRegistry");
-  const registry = await Registry.deploy(registrationFee);
+  const registry = await Registry.deploy(registrationFee, deployer.address);
   const registryReceipt = await registry.deploymentTransaction()!.wait(2); // wait 2 confirms
   const registryAddr = await registry.getAddress();
   console.log(`✅ TaskRegistry:    ${registryAddr} (block ${registryReceipt!.blockNumber})`);

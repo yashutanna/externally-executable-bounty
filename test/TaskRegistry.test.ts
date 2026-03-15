@@ -8,7 +8,7 @@ describe("TaskRegistry", function () {
     const fee = ethers.parseEther("0.001");
 
     const Registry = await ethers.getContractFactory("TaskRegistry");
-    const registry = await Registry.deploy(fee);
+    const registry = await Registry.deploy(fee, owner.address);
 
     // Deploy a valid IScheduledTask contract to register
     const DMS = await ethers.getContractFactory("DeadMansSwitch");

@@ -9,7 +9,7 @@ async function main() {
   // 1. Deploy TaskRegistry (0.001 ETH registration fee)
   const registrationFee = ethers.parseEther("0.001");
   const Registry = await ethers.getContractFactory("TaskRegistry");
-  const registry = await Registry.deploy(registrationFee);
+  const registry = await Registry.deploy(registrationFee, deployer.address);
   await registry.waitForDeployment();
   const registryAddr = await registry.getAddress();
   console.log(`✅ TaskRegistry:    ${registryAddr}`);

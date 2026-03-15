@@ -36,8 +36,8 @@ contract TaskRegistry {
         _;
     }
 
-    constructor(uint256 _registrationFee) {
-        owner = msg.sender;
+    constructor(uint256 _registrationFee, address _owner) {
+        owner = _owner;
         registrationFee = _registrationFee;
     }
 
