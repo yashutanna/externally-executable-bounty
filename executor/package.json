@@ -1,0 +1,14 @@
+{
+  "name": "exb-executor",
+  "version": "1.0.0",
+  "description": "Reference executor bot for Externally Executable Bounty (EXB) contracts",
+  "main": "bot.ts",
+  "scripts": {
+    "start": "npx tsx bot.ts",
+    "dry-run": "DRY_RUN=true npx tsx bot.ts"
+  },
+  "dependencies": {
+    "ethers": "^6.0.0",
+    "tsx": "^4.0.0"
+  }
+}
