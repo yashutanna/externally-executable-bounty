@@ -125,7 +125,7 @@ The repo includes:
 
 The executor bot successfully discovered and executed tasks on testnet, collecting bounties profitably.
 
-**Source code**: [github.com/yashutanna/exb](https://github.com/yashutanna/exb)
+**Source code**: [github.com/yashutanna/externally-executable-bounty](https://github.com/yashutanna/externally-executable-bounty)
 
 ## Security Considerations
 

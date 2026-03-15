@@ -188,7 +188,7 @@ This ERC introduces a new interface with no backwards compatibility issues. Exis
 
 ## Reference Implementation
 
-A complete reference implementation is available at [github.com/yashutanna/exb](https://github.com/yashutanna/exb), including:
+A complete reference implementation is available at [github.com/yashutanna/externally-executable-bounty](https://github.com/yashutanna/externally-executable-bounty), including:
 
 - **`ScheduledTaskBase.sol`** — Abstract base contract with task lifecycle, CEI pattern, ReentrancyGuard, and ETH bounty payments
 - **`TaskRegistry.sol`** — Permissionless on-chain discovery registry (deployed as a public good with no owner and no fees)
