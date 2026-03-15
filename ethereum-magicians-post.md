@@ -114,17 +114,17 @@ We've built and deployed a complete reference implementation on Base Sepolia:
 
 Both contracts are verified and readable on Basescan. The executor bot successfully discovered and executed the dead man's switch task, collecting a 0.0001 ETH bounty for ~0.0000005 ETH in gas.
 
-**Source code**: [TODO: Add GitHub repo link once published]
+**Source code**: [github.com/yashutanna/externally-executable-bounty](https://github.com/yashutanna/externally-executable-bounty)
 
-## Open Questions
+## Design Notes
 
-1. **Should `getExecutableTasks()` support pagination?** For contracts with thousands of tasks, returning all IDs in a single call could hit gas limits. An alternative is `getExecutableTasksPaginated(uint256 offset, uint256 limit)`.
+**Pagination**: The core interface keeps `getExecutableTasks()` simple — returns all executable task IDs. Implementations with large numbers of tasks MAY additionally expose a paginated variant like `getExecutableTasksPaginated(uint256 offset, uint256 limit)`, but this is not part of the standard interface. Simplicity wins for the common case.
 
-2. **Should there be a `taskInfo()` function?** Currently the interface only exposes `taskBounty()`. A richer view function could return execution conditions, status, and metadata — but this adds complexity.
+**No `taskInfo()` function**: We considered a richer view function returning execution conditions, status, and metadata. Decided against it — the interface stays minimal. Implementations can add whatever view functions they need beyond the standard four.
 
-3. **Should the interface mandate ERC-165?** Currently required. Could be made optional to reduce implementation burden.
+**ERC-165**: Compliant contracts SHOULD implement ERC-165 (`supportsInterface`) and return `true` for interface ID `0x0dd141a0`. This lets executor bots quickly verify a contract implements EXB without trial-and-error calls. It's recommended, not mandatory, to keep the implementation burden low.
 
-4. **Event indexing**: Are the current indexed parameters sufficient for executor tooling?
+**Event indexing**: `TaskExecuted` indexes `taskId` and `executor`, enabling efficient queries for "all executions of task X" and "all bounties collected by address Y" — the two queries executors care about most. Bounty token/amount are included as unindexed data (still readable, not filterable at RPC level). Adding more indexed params would increase gas costs on emit without meaningful benefit.
 
 ## Feedback Welcome
 
